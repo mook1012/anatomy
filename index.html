@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Anatomy Prep & Exam - 解剖学実習・CBT/国試対応 3Dアトラス</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background-color: #0b0f19; color: #f1f5f9; font-family: 'Inter', 'Hiragino Sans', 'Meiryo', sans-serif; user-select: none; -webkit-user-select: none; }
+    #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+    .ui-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 10; display: flex; flex-direction: column; justify-content: space-between; padding: 0.75rem; }
+    .ui-panel { pointer-events: auto; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <!-- トースト通知 -->
+  <div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-sky-500 text-slate-950 font-bold text-xs px-4 py-2.5 rounded-full shadow-lg transition-all duration-300 opacity-0 pointer-events-none">
+    コピーしました
+  </div>
+
+  <!-- ローカル検証用ドラッグ＆ドロップ案内（サーバーにGLBが無い時や手動読込時に表示） -->
+  <div id="drop-zone" class="hidden fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center border-2 border-dashed border-sky-500/50 m-4 rounded-2xl">
+    <div class="text-center p-6 max-w-lg">
+      <h2 class="text-xl font-bold mb-2 text-white">ローカルファイルを読み込む</h2>
+      <p class="text-slate-400 text-xs mb-5 leading-relaxed">
+        サーバー上に配置すれば自動ロードされます。<br>
+        手元のPCでテストする場合は <code class="text-sky-300">zanatomy_full_*.glb</code> と <code class="text-emerald-300">anatomy_structures_2.csv</code> をドロップまたは選択してください。
+      </p>
+      <div class="flex gap-3 justify-center">
+        <label class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-xl cursor-pointer transition">
+          ファイルを選択
+          <input type="file" id="file-input" multiple accept=".gltf,.glb,.csv,.json" class="hidden">
+        </label>
+        <button id="close-drop-btn" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-4 py-2.5 rounded-xl border border-slate-700 transition">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 非同期ローディングインジケーター（画面をロックせず上部バーでスマートに表示） -->
+  <div id="loading-bar" class="hidden fixed top-14 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 border border-sky-500/40 text-sky-300 text-xs px-4 py-2 rounded-full shadow-xl flex items-center gap-2.5">
+    <div class="w-3.5 h-3.5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
+    <span id="loading-text">部位モデルを読み込み中...</span>
+  </div>
+
+  <!-- メインUI -->
+  <div class="ui-overlay">
+
+    <!-- 上部バー：部位別オンデマンド切替タブ ＆ URL共有 -->
+    <div class="ui-panel flex flex-wrap items-center justify-between gap-2 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl px-3 py-2 shadow-xl">
+      <div class="flex items-center gap-1.5 overflow-x-auto py-0.5" id="region-tabs">
+        <span class="text-[11px] font-bold text-slate-400 mr-1 shrink-0">部位ロード:</span>
+        <button data-region="brachial" data-file="zanatomy_full_brachial.glb" class="region-btn bg-sky-500/20 text-sky-300 border border-sky-500/40 text-xs px-2.5 py-1 rounded-lg font-medium shrink-0 transition">
+          上肢・肩 (1.3MB)
+        </button>
+        <button data-region="carpal" data-file="zanatomy_full_carpal.glb" class="region-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-lg font-medium shrink-0 transition">
+          手・手根 (0.8MB)
+        </button>
+        <button data-region="gluteal" data-file="zanatomy_full_gluteal.glb" class="region-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-lg font-medium shrink-0 transition">
+          殿部・骨盤 (0.8MB)
+        </button>
+        <button data-region="femoral" data-file="zanatomy_full_femoral.glb" class="region-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-lg font-medium shrink-0 transition">
+          下肢・大腿 (3.3MB)
+        </button>
+        <button data-region="head_trunk" data-file="zanatomy_full_head_trunk.glb" class="region-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-lg font-medium shrink-0 transition">
+          頭頸部・脳 (4.6MB)
+        </button>
+        <button data-region="viscera" data-file="zanatomy_full_viscera.glb" class="region-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-lg font-medium shrink-0 transition">
+          体幹・内臓 (6.4MB)
+        </button>
+      </div>
+
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button id="share-url-btn" class="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs px-3 py-1 rounded-lg font-semibold transition">
+          🔗 表示状態をURL共有
+        </button>
+        <button id="open-file-btn" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-lg transition" title="ローカルのGLB/CSVを追加">
+          📁 手動読込
+        </button>
+      </div>
+    </div>
+
+    <!-- 中央エリア：左右パネル -->
+    <div class="flex-1 flex justify-between items-start gap-3 my-2 overflow-hidden">
+
+      <!-- 左パネル：検索・お気に入り・スライダー・システム表示 -->
+      <div class="ui-panel w-80 bg-slate-900/92 backdrop-blur-md border border-slate-800 rounded-2xl p-3.5 flex flex-col max-h-full overflow-hidden shadow-2xl">
+        
+        <!-- 横断検索（サジェストリスト付き） -->
+        <div class="relative mb-2.5">
+          <input type="text" id="search-input" placeholder="🔍 部位名・作用・国試キーワード検索..." 
+            class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500">
+          <div id="search-results" class="hidden absolute left-0 right-0 top-10 bg-slate-950 border border-slate-700 rounded-xl max-h-52 overflow-y-auto z-30 shadow-2xl divide-y divide-slate-800/80 text-xs"></div>
+        </div>
+
+        <!-- タブ切替：レイヤー制御 / ★お気に入り＆色分け一覧 -->
+        <div class="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-xl mb-2.5 text-xs border border-slate-800">
+          <button id="tab-layers-btn" class="py-1 rounded-lg font-semibold bg-slate-800 text-white transition">レイヤー・剥離</button>
+          <button id="tab-favs-btn" class="py-1 rounded-lg font-semibold text-slate-400 hover:text-white transition">★ お気に入り (<span id="fav-count">0</span>)</button>
+        </div>
+
+        <!-- タブ1：レイヤー＆スライダー -->
+        <div id="panel-layers" class="flex-1 overflow-y-auto pr-1 space-y-2.5">
+          <!-- 階層レベル ＆ 剥離スライダー -->
+          <div class="space-y-2 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+            <div>
+              <div class="flex justify-between items-center text-[11px] mb-0.5">
+                <span class="font-semibold text-amber-300">表示粒度 (meshLv)</span>
+                <span id="level-value" class="text-amber-400 font-bold">Lv.4 (標準)</span>
+              </div>
+              <input type="range" id="level-slider" min="1" max="5" step="1" value="4" class="w-full accent-amber-400 cursor-pointer">
+            </div>
+            <div class="pt-1.5 border-t border-slate-800/80">
+              <div class="flex justify-between items-center text-[11px] mb-0.5">
+                <span class="font-semibold text-slate-300">表層剥離 (Peel)</span>
+                <span id="peel-value" class="text-sky-400 font-mono">0%</span>
+              </div>
+              <input type="range" id="peel-slider" min="0" max="100" value="0" class="w-full accent-sky-500 cursor-pointer">
+            </div>
+          </div>
+
+          <!-- 解剖学システム ON/OFF -->
+          <div class="space-y-1 text-xs" id="layer-toggles">
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#e5dec9]"></span>骨格・軟骨・歯</span>
+              <input type="checkbox" data-layer="bone" checked class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#dcd7c9] border border-slate-400"></span>靭帯・関節包・支帯</span>
+              <input type="checkbox" data-layer="ligament" checked class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#c24641]"></span>筋肉・腱</span>
+              <input type="checkbox" data-layer="muscle" checked class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#ef4444]"></span>動脈系</span>
+              <input type="checkbox" data-layer="artery" checked class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#3b82f6]"></span>静脈系</span>
+              <input type="checkbox" data-layer="vein" checked class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#facc15]"></span>脳・神経・感覚器</span>
+              <input type="checkbox" data-layer="nerve" checked class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#d97788]"></span>内臓・器官</span>
+              <input type="checkbox" data-layer="viscera" checked class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#84cc16]"></span>リンパ系</span>
+              <input type="checkbox" data-layer="lymph" class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#f97316]"></span>起始・停止 (.o / .e)</span>
+              <input type="checkbox" data-layer="attachment" class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+            <label class="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800 cursor-pointer">
+              <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#38bdf8]"></span>筋膜・滑液包</span>
+              <input type="checkbox" data-layer="fascia" class="accent-sky-500 w-3.5 h-3.5">
+            </label>
+          </div>
+
+          <div class="pt-2 border-t border-slate-800 space-y-1.5">
+            <button id="reset-view-btn" class="w-full bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 py-1.5 rounded-xl border border-slate-700 transition">
+              隠した部位・カメラをすべてリセット
+            </button>
+          </div>
+        </div>
+
+        <!-- タブ2：ログイン不要のお気に入り＆ペイント済みリスト -->
+        <div id="panel-favs" class="hidden flex-1 overflow-y-auto pr-1 space-y-2 text-xs">
+          <p class="text-[11px] text-slate-400">ログイン不要でこの端末に自動保存されます。タップすると該当部位へフォーカスします。</p>
+          <div id="fav-list" class="space-y-1.5"></div>
+          <button id="clear-saved-btn" class="w-full mt-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 py-1.5 rounded-xl text-[11px] transition">
+            保存したお気に入り・色を初期化
+          </button>
+        </div>
+
+      </div>
+
+      <!-- 右パネル：解剖実習・CBT/国試インスペクタ ＋ 32色カラー ＋ デバッグ報告 -->
+      <div id="inspector-panel" class="ui-panel w-96 bg-slate-900/95 backdrop-blur-md border border-slate-700/70 rounded-2xl p-4 max-h-full overflow-y-auto shadow-2xl hidden">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-2.5">
+          <div class="flex items-center gap-1.5">
+            <span id="part-badge" class="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">SYSTEM</span>
+            <span id="part-lv-badge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Lv.1</span>
+            <span id="part-side" class="text-xs text-slate-400 ml-1">-</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="fav-toggle-btn" class="text-lg leading-none text-slate-500 hover:text-amber-400 transition" title="お気に入りに保存">★</button>
+            <button id="close-inspector" class="text-slate-400 hover:text-white text-lg leading-none">&times;</button>
+          </div>
+        </div>
+
+        <p id="part-kana" class="text-xs text-sky-400 font-medium mb-0.5">-</p>
+        <h2 id="part-ja-name" class="text-lg font-bold text-white mb-0.5">-</h2>
+        <p id="part-en-name" class="text-[11px] text-slate-400 font-mono mb-0.5">-</p>
+        <p id="part-latin-name" class="text-[11px] text-slate-500 italic mb-3">TA Latin: -</p>
+
+        <!-- 解剖学的走行・作用・実習ランドマーク・CBT/国試ポイント -->
+        <div class="space-y-2 text-xs bg-slate-950/70 p-3 rounded-xl border border-slate-800/90 mb-3">
+          <div>
+            <span class="text-slate-500 block text-[10px] uppercase font-bold">作用・機能 (Action / Material)</span>
+            <span id="part-action" class="text-sky-300 font-semibold">-</span>
+          </div>
+          <div class="border-t border-slate-800/80 pt-1.5">
+            <span class="text-slate-500 block text-[10px] uppercase font-bold">解剖学的走行 (Path)</span>
+            <span id="part-path" class="text-slate-200">-</span>
+          </div>
+          <div class="border-t border-slate-800/80 pt-1.5">
+            <span class="text-slate-500 block text-[10px] uppercase font-bold">解剖実習ランドマーク (Dissection)</span>
+            <span id="part-dissect" class="text-emerald-300">-</span>
+          </div>
+          <div class="border-t border-slate-800/80 pt-1.5">
+            <span class="text-slate-500 block text-[10px] uppercase font-bold">CBT・医師国家試験ポイント (Exam)</span>
+            <span id="part-exam" class="text-amber-300">-</span>
+          </div>
+        </div>
+
+        <!-- 32色スウォッチ（余計な見出し文字なし・クリックで即座に色分け＆自動保存） -->
+        <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 mb-3">
+          <div class="grid grid-cols-8 gap-1.5 mb-2" id="color-swatches"></div>
+          <button id="reset-color-btn" class="w-full text-[11px] text-slate-400 hover:text-white bg-slate-800/70 hover:bg-slate-800 py-1 rounded-lg transition">
+            元の解剖学カラーに戻す
+          </button>
+        </div>
+
+        <!-- 個人用メモ（ログイン不要・自動保存） -->
+        <div class="mb-3">
+          <textarea id="part-memo" rows="2" placeholder="自分用の実習・国試メモを入力（自動保存されます）..." 
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"></textarea>
+        </div>
+
+        <!-- 操作＆デバッグ報告ボタン -->
+        <div class="grid grid-cols-2 gap-2 mb-2">
+          <button id="isolate-btn" class="bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 py-1.5 rounded-xl text-xs font-semibold transition">
+            単独表示トグル
+          </button>
+          <button id="hide-part-btn" class="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 py-1.5 rounded-xl text-xs font-semibold transition">
+            この構造を隠す
+          </button>
+        </div>
+        <button id="debug-report-btn" class="w-full bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 py-1.5 rounded-xl text-[11px] font-medium transition">
+          🛠 この部位のデバッグ報告・共有リンクをコピー
+        </button>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+    // ============================================================================
+    // 1. ログイン不要のローカル保存（お気に入り・32色ペイント・個人メモ）
+    // ============================================================================
+    const STORAGE_KEY = 'anatomy_user_state_v1';
+    const userState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"favorites":{},"colors":{},"memos":{}}');
+    function saveUserState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(userState));
+      renderFavoritesList();
+    }
+
+    // 32色カラー定義（余計なラベル無しで視認性の高い32色）
+    const SWATCH_32_COLORS = [
+      '#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6',
+      '#06b6d4','#0ea5e9','#3b82f6','#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899',
+      '#f43f5e','#fca5a5','#fdba74','#fde047','#bef264','#86efac','#5eead4','#7dd3fc',
+      '#93c5fd','#c4b5fd','#f0abfc','#fda4af','#ffffff','#cbd5e1','#64748b','#1e293b'
+    ];
+
+    // 作用マテリアルの日本語訳マップ
+    const ACTION_JA_MAP = {
+      'Flexion': '屈曲 (Flexion)',
+      'Flexion hand/foot': '手・足の屈曲 (Flexion)',
+      'Flexion fingers': '指の屈曲 (Flexion)',
+      'Extension': '伸展 (Extension)',
+      'Extensor extremities': '四肢の伸展 (Extension)',
+      'Extension hand/foot': '手・足の伸展 (Extension)',
+      'Abductor': '外転 (Abduction)',
+      'Adductor': '内転 (Adduction)',
+      'Internal rotator': '内旋 (Internal rotation)',
+      'External rotation': '外旋 (External rotation)',
+      'Levator': '挙上 (Elevation)',
+      'Depressor': '下制 (Depression)',
+      'Masticator': '咀嚼 (Mastication)',
+      'Biarticular': '二関節筋 (Biarticular)',
+      'Tendon': '腱 (Tendon)',
+      'Ligament': '関節制動・支持 (Ligament)',
+      'Articular capsule': '関節包・関節腔保護 (Capsule)'
+    };
+
+    // ============================================================================
+    // 2. IndexedDB キャッシュ（2回目以降のGLBロードを0秒にする仕組み）
+    // ============================================================================
+    function openCacheDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open('AnatomyGLBCacheDB', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('glbs');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    async function fetchWithCache(url) {
+      try {
+        const db = await openCacheDB();
+        const cached = await new Promise(res => {
+          const tx = db.transaction('glbs', 'readonly');
+          const r = tx.objectStore('glbs').get(url);
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => res(null);
+        });
+        if (cached) return cached;
+
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const buffer = await resp.arrayBuffer();
+
+        const tx = db.transaction('glbs', 'readwrite');
+        tx.objectStore('glbs').put(buffer, url);
+        return buffer;
+      } catch (e) {
+        throw e;
+      }
+    }
+
+    // ============================================================================
+    // 3. 表記揺れ対応・英語⇔日本語辞書 ＆ システム分類エンジン
+    // ============================================================================
+    const EXACT_DICT = {
+      "parietal bone": { ja: "頭頂骨", kana: "とうちょうこつ", latin: "Os parietale", lv: 1 },
+      "frontal bone": { ja: "前頭骨", kana: "ぜんとうこつ", latin: "Os frontale", lv: 1 },
+      "occipital bone": { ja: "後頭骨", kana: "こうとうこつ", latin: "Os occipitale", lv: 1 },
+      "sphenoid bone": { ja: "蝶形骨", kana: "ちょうけいこつ", latin: "Os sphenoidale", lv: 2 },
+      "temporal bone": { ja: "側頭骨", kana: "そくとうこつ", latin: "Os temporale", lv: 1 },
+      "ethmoid bone": { ja: "篩骨", kana: "しこつ", latin: "Os ethmoidale", lv: 2 },
+      "maxilla": { ja: "上顎骨", kana: "じょうがくこつ", latin: "Maxilla", lv: 1 },
+      "mandible": { ja: "下顎骨", kana: "かがくこつ", latin: "Mandibula", lv: 1 },
+      "clavicle": { ja: "鎖骨", kana: "さこつ", latin: "Clavicula", lv: 1 },
+      "scapula": { ja: "肩甲骨", kana: "けんこうこつ", latin: "Scapula", lv: 1 },
+      "humerus": { ja: "上腕骨", kana: "じょうわんこつ", latin: "Humerus", lv: 1 },
+      "radius": { ja: "橈骨", kana: "とうこつ", latin: "Radius", lv: 1 },
+      "ulna": { ja: "尺骨", kana: "しゃっこつ", latin: "Ulna", lv: 1 },
+      "hip bone": { ja: "寛骨", kana: "かんこつ", latin: "Os coxae", lv: 1 },
+      "ilium": { ja: "腸骨", kana: "ちょうこつ", latin: "Os ilium", lv: 1 },
+      "ischium": { ja: "坐骨", kana: "ざこつ", latin: "Os ischii", lv: 1 },
+      "pubis": { ja: "恥骨", kana: "ちこつ", latin: "Os pubis", lv: 1 },
+      "sacrum": { ja: "仙骨", kana: "せんこつ", latin: "Os sacrum", lv: 1 },
+      "coccyx": { ja: "尾骨", kana: "びこつ", latin: "Os coccygis", lv: 2 },
+      "femur": { ja: "大腿骨", kana: "だいたいこつ", latin: "Femur", lv: 1 },
+      "patella": { ja: "膝蓋骨", kana: "しつがいこつ", latin: "Patella", lv: 1 },
+      "tibia": { ja: "脛骨", kana: "けいこつ", latin: "Tibia", lv: 1 },
+      "fibula": { ja: "腓骨", kana: "ひこつ", latin: "Fibula", lv: 1 },
+      "talus": { ja: "距骨", kana: "きょこつ", latin: "Talus", lv: 2 },
+      "calcaneus": { ja: "踵骨", kana: "しょうこつ", latin: "Calcaneus", lv: 2 },
+      "sternum": { ja: "胸骨", kana: "きょうこつ", latin: "Sternum", lv: 1 },
+      "levator scapulae": { ja: "肩甲挙筋", kana: "けんこうきょきん", latin: "M. levator scapulae", lv: 2 },
+      "levator scapulae muscle": { ja: "肩甲挙筋", kana: "けんこうきょきん", latin: "M. levator scapulae", lv: 2 },
+      "sternocleidomastoid muscle": { ja: "胸鎖乳突筋", kana: "きょうさにゅうとつきん", latin: "M. sternocleidomastoideus", lv: 1 },
+      "trapezius muscle": { ja: "僧帽筋", kana: "そうぼうきん", latin: "M. trapezius", lv: 1 },
+      "latissimus dorsi muscle": { ja: "広背筋", kana: "こうはいきん", latin: "M. latissimus dorsi", lv: 1 },
+      "deltoid muscle": { ja: "三角筋", kana: "さんかくきん", latin: "M. deltoideus", lv: 1 },
+      "pectoralis major muscle": { ja: "大胸筋", kana: "だいきょうきん", latin: "M. pectoralis major", lv: 1 },
+      "pectoralis minor muscle": { ja: "小胸筋", kana: "しょうきょうきん", latin: "M. pectoralis minor", lv: 2 },
+      "serratus anterior muscle": { ja: "前鋸筋", kana: "ぜんきょきん", latin: "M. serratus anterior", lv: 2 },
+      "supraspinatus muscle": { ja: "棘上筋", kana: "きょくじょうきん", latin: "M. supraspinatus", lv: 2 },
+      "infraspinatus muscle": { ja: "棘下筋", kana: "きょくかきん", latin: "M. infraspinatus", lv: 2 },
+      "teres minor muscle": { ja: "小円筋", kana: "しょうえんきん", latin: "M. teres minor", lv: 2 },
+      "teres major muscle": { ja: "大円筋", kana: "だいえんきん", latin: "M. teres major", lv: 2 },
+      "subscapularis muscle": { ja: "肩甲下筋", kana: "けんこうかきん", latin: "M. subscapularis", lv: 2 },
+      "biceps brachii muscle": { ja: "上腕二頭筋", kana: "じょうわんにとうきん", latin: "M. biceps brachii", lv: 1 },
+      "long head of biceps brachii": { ja: "上腕二頭筋（長頭）", kana: "じょうわんにとうきんちょうとう", latin: "Caput longum m. bicipitis brachii", lv: 2 },
+      "short head of biceps brachii": { ja: "上腕二頭筋（短頭）", kana: "じょうわんにとうきんたんとう", latin: "Caput breve m. bicipitis brachii", lv: 2 },
+      "triceps brachii muscle": { ja: "上腕三頭筋", kana: "じょうわんさんとうきん", latin: "M. triceps brachii", lv: 1 },
+      "brachialis muscle": { ja: "上腕筋", kana: "じょうわんきん", latin: "M. brachialis", lv: 2 },
+      "coracobrachialis muscle": { ja: "烏口腕筋", kana: "うこうわんきん", latin: "M. coracobrachialis", lv: 2 },
+      "brachioradialis muscle": { ja: "腕橈骨筋", kana: "わんとうこつきん", latin: "M. brachioradialis", lv: 2 },
+      "gluteus maximus muscle": { ja: "大殿筋", kana: "だいでんきん", latin: "M. gluteus maximus", lv: 1 },
+      "gluteus medius muscle": { ja: "中殿筋", kana: "ちゅうでんきん", latin: "M. gluteus medius", lv: 2 },
+      "gluteus minimus muscle": { ja: "小殿筋", kana: "しょうでんきん", latin: "M. gluteus minimus", lv: 2 },
+      "piriformis muscle": { ja: "梨状筋", kana: "りじょうきん", latin: "M. piriformis", lv: 2 },
+      "iliopsoas muscle": { ja: "腸腰筋", kana: "ちょうようきん", latin: "M. iliopsoas", lv: 1 },
+      "psoas major muscle": { ja: "大腰筋", kana: "だいようきん", latin: "M. psoas major", lv: 1 },
+      "iliacus muscle": { ja: "腸骨筋", kana: "ちょうこつきん", latin: "M. iliacus", lv: 1 },
+      "sartorius muscle": { ja: "縫工筋", kana: "ほうこうきん", latin: "M. sartorius", lv: 2 },
+      "rectus femoris muscle": { ja: "大腿直筋", kana: "だいたいちょっきん", latin: "M. rectus femoris", lv: 1 },
+      "vastus lateralis muscle": { ja: "外側広筋", kana: "がいそくこうきん", latin: "M. vastus lateralis", lv: 2 },
+      "vastus medialis muscle": { ja: "内側広筋", kana: "ないそくこうきん", latin: "M. vastus medialis", lv: 2 },
+      "vastus intermedius muscle": { ja: "中間広筋", kana: "ちゅうかんこうきん", latin: "M. vastus intermedius", lv: 2 },
+      "biceps femoris muscle": { ja: "大腿二頭筋", kana: "だいたいにとうきん", latin: "M. biceps femoris", lv: 1 },
+      "semitendinosus muscle": { ja: "半腱様筋", kana: "はんけんようきん", latin: "M. semitendinosus", lv: 2 },
+      "semimembranosus muscle": { ja: "半膜様筋", kana: "はんまくようきん", latin: "M. semimembranosus", lv: 2 },
+      "gastrocnemius muscle": { ja: "腓腹筋", kana: "ひふくきん", latin: "M. gastrocnemius", lv: 1 },
+      "soleus muscle": { ja: "ヒラメ筋", kana: "ひらめきん", latin: "M. soleus", lv: 2 },
+      "inguinal ligament": { ja: "鼠径靭帯", kana: "そけいじんたい", latin: "Lig. inguinale", lv: 1 },
+      "sacrotuberous ligament": { ja: "仙結節靭帯", kana: "せんけっせつじんたい", latin: "Lig. sacrotuberale", lv: 2 },
+      "sacrospinous ligament": { ja: "仙棘靭帯", kana: "せんきょくじんたい", latin: "Lig. sacrospinale", lv: 2 },
+      "anterior cruciate ligament": { ja: "前十字靭帯 (ACL)", kana: "ぜんじゅうじじんたい", latin: "Lig. cruciatum anterius", lv: 1 },
+      "posterior cruciate ligament": { ja: "後十字靭帯 (PCL)", kana: "こうじゅうじじんたい", latin: "Lig. cruciatum posterius", lv: 1 },
+      "pulmonary trunk": { ja: "肺動脈幹", kana: "はいどうみゃくかん", latin: "Truncus pulmonalis", lv: 1 },
+      "anterior communicating artery": { ja: "前交通動脈", kana: "ぜんこうつうどうみゃく", latin: "A. communicans anterior", lv: 3 },
+      "cavernous sinus": { ja: "海綿静脈洞", kana: "かいめんじょうみゃくどう", latin: "Sinus cavernosus", lv: 3 }
+    };
+
+    const TOKEN_MAP = [
+      [/\banterior\b|\banterius\b/gi, "前"], [/\bposterior\b|\bposterius\b/gi, "後"],
+      [/\bsuperior\b|\bsuperius\b/gi, "上"], [/\binferior\b|\binferius\b/gi, "下"],
+      [/\bsuperficial\b|\bsuperficialis\b/gi, "浅"], [/\bdeep\b|\bprofunda\b|\bprofundus\b/gi, "深"],
+      [/\bmedial\b|\bmedialis\b|\binternal\b|\binterna\b/gi, "内"], [/\blateral\b|\blateralis\b|\bexternal\b|\bexterna\b/gi, "外"],
+      [/\bmiddle\b|\bintermediate\b|\bmedius\b|\bintermedius\b/gi, "中"], [/\bcommon\b|\bcommunis\b/gi, "総"],
+      [/\btransverse\b|\btransversus\b|\btransversum\b|\btransversalis\b/gi, "横"],
+      [/\bascending\b/gi, "上行"], [/\bdescending\b/gi, "下行"], [/\boblique\b|\bobliquus\b/gi, "斜"], [/\brectus\b/gi, "直"],
+      [/\blongus\b|\blong\b|\blongi\b|\blongitudinal\b/gi, "長"], [/\bbrevis\b|\bshort\b|\bbreves\b/gi, "短"],
+      [/\bmajor\b|\bmagna\b|\bmagnus\b|\bmaximus\b|\bgreat\b/gi, "大"], [/\bminor\b|\bminimus\b|\bparva\b|\bsmall\b|\bminimi\b/gi, "小"],
+      [/\bdistal\b/gi, "遠位(末節)"], [/\bproximal\b/gi, "近位(基節)"],
+      [/\bfirst\b/gi, "第1"], [/\bsecond\b/gi, "第2"], [/\bthird\b/gi, "第3"], [/\bfourth\b/gi, "第4"], [/\bfifth\b/gi, "第5"],
+      [/\bdorsal\b|\bdorsi\b/gi, "背側"], [/\bpalmar\b|\bpalmaris\b/gi, "掌側"], [/\bplantar\b|\bplantaris\b/gi, "足底"],
+      [/\bcarpi\b|\bcarpal\b|\bwrist\b/gi, "手根"], [/\bmetacarpal\b/gi, "中手"], [/\bphalangeal\b|\bphalanx\b/gi, "指節骨"],
+      [/\bdigitorum\b|\bdigital\b|\bdigiti\b|\bfingers?\b/gi, "指"], [/\bpollicis\b|\bthumb\b/gi, "母指"], [/\bindicis\b/gi, "示指"],
+      [/\bhallucis\b|\btoes?\b/gi, "母趾・足趾"], [/\btarsal\b|\btarsi\b|\bankle\b/gi, "足根"], [/\bmetatarsal\b/gi, "中足"],
+      [/\bhand\b/gi, "手"], [/\bfoot\b/gi, "足"],
+      [/\bradia(l|lis)\b|\bradio\b/gi, "橈側"], [/\bulna(r|ris)\b/gi, "尺側"],
+      [/\bhumera(l|lis)\b|\bbrachii\b|\bbrachial\b/gi, "上腕"], [/\bantebrachii\b|\bforearm\b|\bantebrachial\b/gi, "前腕"],
+      [/\bfemora(l|lis)\b|\bfemoris\b|\bthigh\b/gi, "大腿"], [/\bpopliteal\b/gi, "膝窩"], [/\bpatellar\b|\bpatella\b/gi, "膝蓋"],
+      [/\btibia(l|lis)\b/gi, "脛骨"], [/\bfibula(r|ris)\b|\bperoneal\b/gi, "腓骨"], [/\bleg\b|\bcruris\b/gi, "下腿"],
+      [/\bglute(al|us)\b/gi, "殿"], [/\biliopectineal\b/gi, "腸恥"], [/\biliac\b|\bilio\b|\biliacus\b/gi, "腸骨"],
+      [/\bpubo\b|\bpubic\b/gi, "恥骨"], [/\bischio\b|\bischial\b/gi, "坐骨"], [/\bsacro\b|\bsacral\b/gi, "仙骨"],
+      [/\bcervical\b|\bcervicis\b|\bcolli\b/gi, "頸"], [/\bthoracic\b|\bthoracis\b|\bpectoral\b|\bpectoralis\b/gi, "胸"],
+      [/\blumbar\b|\blumborum\b/gi, "腰"], [/\babdominal\b|\babdominis\b/gi, "腹"],
+      [/\bcapitis\b|\bcranial\b/gi, "頭"], [/\bcarotid\b/gi, "頸動脈"], [/\bjugular\b/gi, "頸静脈"],
+      [/\bsubclavian\b/gi, "鎖骨下"], [/\baxillary\b/gi, "腋窩"], [/\bcoraco\b/gi, "烏口"], [/\bacromio\b|\bacromial\b/gi, "肩峰"],
+      [/\bclavicular\b|\bcleido\b/gi, "鎖骨"], [/\bscapular\b|\bscapulae\b|\bglenohumeral\b|\bglenoid\b/gi, "肩甲"],
+      [/\bsterno\b|\bsternal\b/gi, "胸骨"], [/\bcostal\b|\bcosto\b|\bribs?\b/gi, "肋骨"], [/\bspinal\b|\bvertebral\b|\bvertebrae?\b/gi, "脊椎"],
+      [/\binterosseous\b/gi, "骨間"], [/\bcollateral\b/gi, "側副"], [/\bcruciate\b/gi, "十字"], [/\bannular\b|\banular\b/gi, "輪状"],
+      [/\bflexor\b/gi, "屈筋"], [/\bextensor\b/gi, "伸筋"], [/\babductor\b/gi, "外転筋"], [/\badductor\b/gi, "内転筋"],
+      [/\blevator\b|\blevatores\b/gi, "挙筋"], [/\bdepressor\b/gi, "下制筋"], [/\bpronator\b/gi, "回内筋"], [/\bsupinator\b/gi, "回外筋"],
+      [/\bsubtendinous\b/gi, "腱下"], [/\bsubcutaneous\b/gi, "皮下"], [/\bintermuscular\b/gi, "筋間"],
+      [/\bligaments?\b|\blig\.?\b|\bligamentum\b/gi, "靭帯"], [/\barticular capsules?\b|\bcapsules?\b/gi, "関節包"],
+      [/\bjoints?\b/gi, "関節"], [/\bretinaculum\b/gi, "支帯"], [/\baponeurosis\b/gi, "腱膜"], [/\bmembrane\b/gi, "膜"],
+      [/\blabrum\b/gi, "関節唇"], [/\bintervertebral disc\b|\bdisc\b|\bmeniscus\b/gi, "椎間板・関節円板"],
+      [/\btendon sheaths?\b|\bsheaths?\b/gi, "腱鞘"], [/\btendons?\b/gi, "腱"], [/\bfascia\b/gi, "筋膜"], [/\bbursae?\b/gi, "滑液包"],
+      [/\bmuscles?\b|\bm\.?\b/gi, "筋"], [/\barter(y|ies|ia)\b/gi, "動脈"], [/\bveins?\b|\bvena\b|\bvenous\b/gi, "静脈"],
+      [/\btrunk\b/gi, "幹"], [/\bsinus\b/gi, "洞"], [/\bplexus\b/gi, "叢"], [/\barch\b/gi, "弓"],
+      [/\bnerves?\b/gi, "神経"], [/\bgangli(on|a)\b/gi, "神経節"], [/\bnucle(us|i)\b/gi, "神経核"],
+      [/\bgyr(us|i)\b/gi, "回"], [/\bsulc(us|i)\b/gi, "溝"], [/\blymph nodes?\b|\bnodes?\b/gi, "リンパ節"],
+      [/\bliver\b|\bhepatic\b/gi, "肝"], [/\blungs?\b|\bpulmonary\b/gi, "肺"], [/\bstomach\b|\bgastric\b/gi, "胃"],
+      [/\bbones?\b/gi, "骨"], [/\bcartilage\b/gi, "軟骨"], [/\bhead\b/gi, "頭"], [/\bbranch(es)?\b/gi, "枝"], [/\bpart\b/gi, "部"],
+      [/\bregions?\b/gi, "領域"], [/\btriangles?\b/gi, "三角"], [/\bfossae?\b/gi, "窩"]
+    ];
+
+    const csvMap = new Map();
+
+    function classifySystem(rawName, matName) {
+      const n = (rawName || '').toLowerCase();
+      const m = (matName || '').toLowerCase();
+      if (/\.(o|e)\d*[lr]?$/i.test(n) || m.startsWith('origin') || m.startsWith('end-')) return 'attachment';
+      if (m.startsWith('lymph') || /\b(lymph|node|nodes|nodi|cisterna chyli|thoracic duct)\b/i.test(n)) return 'lymph';
+      if (m.includes('artery') || m.includes('arteria') || /\b(artery|arteries|arteria|aorta|aortic|carotid a|subclavian a|axillary a|brachial a|radial a|ulnar a|iliac a|femoral a|popliteal a|tibial a|basilar a|vertebral a|pulmonary trunk|brachiocephalic trunk|choroid plexus)\b/i.test(n)) return 'artery';
+      if (m.includes('vein') || m.includes('vena') || (!n.includes('bone') && /\b(vein|veins|vena|venae|cava|jugular|saphenous|cephalic|basilic|azygos|portal|venous plexus|cavernous sinus|sagittal sinus|transverse sinus|sigmoid sinus|petrosal sinus)\b/i.test(n))) return 'vein';
+      if (m === 'ligament' || m === 'articular capsule' || m.includes('ligament') || /\b(ligament|ligaments|ligamenta|ligamentum|lig\.|capsule|articular|retinaculum|interosseous membrane|aponeurosis|labrum|meniscus|annular|anular|flava|flavum|nuchal|cruciate|collateral|iliofemoral|pubofemoral|ischiofemoral|inguinal|sacrotuberous|sacrospinous|coracoacromial|coracoclavicular|acromioclavicular|glenohumeral|patellar|intervertebral disc|oblique cord|arch of foot|iliopectineal arch|tendinous arch)\b/i.test(n)) return 'ligament';
+      if (m === 'fascia' || m === 'bursa' || /\b(fascia|bursa|bursae|synovial sheath|tendon sheath|tendinous sheath|septum)\b/i.test(n)) return 'fascia';
+      if (m.startsWith('skin') || m === 'nail' || m === 'text' || /\b(region|triangle|fossa|groove|skin|epidermis|dermis|hair|nail|how to|take a picture|cross section)\b/i.test(n)) return 'skin';
+      if (m.includes('brain') || m.includes('nerve') || m.includes('lobe') || m.includes('cerebell') || m === 'white matter' || m === 'lcr' || m === 'eye' || m === 'cornea' || m === 'iris' || /\b(nerve|nerves|nervus|plexus|ganglion|ganglia|tract|chiasm|stria|gyrus|gyri|sulcus|sulci|cortex|ventricle|thalamus|hypothalamus|hippocampus|amygdala|caudate|putamen|pallidus|brainstem|pons|medulla|midbrain|cerebellum|cerebrum|spinal cord|dura|arachnoid|pia|retina|sclera|cornea|lens|cochlea|nucleus|nuclei)\b/i.test(n)) return 'nerve';
+      if (m.includes('viscera') || m.includes('organ') || m.includes('lung') || m.includes('heart') || m.includes('liver') || m.includes('stomach') || m.includes('kidney') || m.includes('intestine') || m.includes('mucosa') || m.includes('gland') || /\b(heart|atrium|ventricle|pericardium|lung|pleura|bronchus|trachea|larynx|pharynx|thyroid|thymus|esophagus|stomach|pyloric|duodenum|jejunum|ileum|colon|cecum|appendix|rectum|liver|hepatic|gallbladder|pancreas|spleen|kidney|ureter|bladder|urethra|prostate|uterus|ovary|testis|gland|tongue|palate|epiglottis)\b/i.test(n)) return 'viscera';
+      if (m.startsWith('bone') || m.startsWith('suture') || m.startsWith('teeth') || m === 'cartilage' || /\b(bone|os|ossa|vertebra|rib|costa|cartilage|suture|tooth|teeth|molar|premolar|incisor|canine|maxilla|mandible|clavicle|scapula|humerus|radius|ulna|carpal|metacarpal|phalanx|phalanges|pelvis|ilium|ischium|pubis|sacrum|coccyx|femur|patella|tibia|fibula|tarsal|metatarsal|calcaneus|talus|sternum|cranium|skull|atlas|axis|malleus|incus|stapes)\b/i.test(n)) return 'bone';
+      return 'muscle';
+    }
+
+    function resolveAnatomyData(rawName, origMatName) {
+      let clean = (rawName || 'Unnamed').trim().replace(/[._]\d{3}$/, '').replace(/^\((.*)\)(\.[a-z0-9]+)$/i, '$1$2').replace(/^\((.*)\)$/, '$1');
+      let sideJa = '中央 / 共通';
+      let subType = '';
+      let isAttachment = false;
+
+      if (/\.o\d*l$/i.test(clean)) { sideJa = '左 (Left)'; subType = '【起始】'; isAttachment = true; clean = clean.replace(/\.o\d*l$/i, ''); }
+      else if (/\.o\d*r$/i.test(clean)) { sideJa = '右 (Right)'; subType = '【起始】'; isAttachment = true; clean = clean.replace(/\.o\d*r$/i, ''); }
+      else if (/\.e\d*l$/i.test(clean)) { sideJa = '左 (Left)'; subType = '【停止】'; isAttachment = true; clean = clean.replace(/\.e\d*l$/i, ''); }
+      else if (/\.e\d*r$/i.test(clean)) { sideJa = '右 (Right)'; subType = '【停止】'; isAttachment = true; clean = clean.replace(/\.e\d*r$/i, ''); }
+      else if (/\.l$/i.test(clean)) { sideJa = '左 (Left)'; clean = clean.replace(/\.l$/i, ''); }
+      else if (/\.r$/i.test(clean)) { sideJa = '右 (Right)'; clean = clean.replace(/\.r$/i, ''); }
+      else if (/\.j$/i.test(clean)) { subType = '【指標】'; clean = clean.replace(/\.j$/i, ''); }
+      else if (/\.g$/i.test(clean)) { subType = '【群】'; clean = clean.replace(/\.g$/i, ''); }
+
+      clean = clean.replace(/^\((.*)\)$/, '$1').trim();
+      const lowerKey = clean.toLowerCase().replace(/[_*]/g, ' ').replace(/\s+/g, ' ').trim();
+      const csvEntry = csvMap.get(rawName) || csvMap.get(clean);
+      const system = classifySystem(rawName, origMatName);
+
+      const dictHit = EXACT_DICT[lowerKey] || EXACT_DICT[lowerKey + ' muscle'] || EXACT_DICT[lowerKey + ' bone'];
+      const meshLv = csvEntry?.meshLv ? parseInt(csvEntry.meshLv, 10) : (dictHit?.lv || (isAttachment ? 5 : 3));
+
+      if (dictHit) {
+        return { id: rawName, ja: dictHit.ja + subType, kana: dictHit.kana, en: clean, latin: dictHit.latin, system, sideJa, meshLv, csv: csvEntry };
+      }
+
+      let synth = lowerKey.replace(/\bof the\b|\bof\b|\bthe\b|\band\b/gi, ' ').replace(/[-_]/g, ' ');
+      for (const [regex, jaToken] of TOKEN_MAP) {
+        if (regex.test(synth)) synth = synth.replace(regex, jaToken);
+      }
+      synth = synth.replace(/\s+/g, '');
+      const hasJa = /[ぁ-んァ-ヶ一-龠]/.test(synth);
+      const csvNameValidJa = csvEntry && /[ぁ-んァ-ヶ一-龠]/.test(csvEntry.name) && !(csvEntry.name === '肩甲骨' && lowerKey !== 'scapula');
+
+      return {
+        id: rawName,
+        ja: csvNameValidJa ? (csvEntry.name + subType) : (hasJa ? synth + subType : clean + subType),
+        kana: (csvNameValidJa && csvEntry.kana) ? csvEntry.kana : '',
+        en: clean,
+        latin: (csvNameValidJa && csvEntry.latin) ? csvEntry.latin : clean,
+        system, sideJa, meshLv, csv: csvEntry
+      };
+    }
+
+    // ============================================================================
+    // 4. Three.js シーン ＆ マテリアル管理
+    // ============================================================================
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b0f19);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.005, 100);
+    camera.position.set(0, 1.2, 2.2);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1.0, 0);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.3);
+    dirLight1.position.set(2, 4, 3);
+    scene.add(dirLight1);
+    const dirLight2 = new THREE.DirectionalLight(0x94a3b8, 0.9);
+    dirLight2.position.set(-2, -1, -3);
+    scene.add(dirLight2);
+
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+    dracoLoader.preload();
+
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.setDRACOLoader(dracoLoader);
+
+    const SYSTEM_PALETTE = {
+      bone:       { hex: 0xe5dec9, rough: 0.55, metal: 0.05, emissive: 0x000000 },
+      ligament:   { hex: 0xdcd7c9, rough: 0.40, metal: 0.05, emissive: 0x111111 },
+      muscle:     { hex: 0xc24641, rough: 0.60, metal: 0.05, emissive: 0x150404 },
+      artery:     { hex: 0xef4444, rough: 0.30, metal: 0.10, emissive: 0x450a0a },
+      vein:       { hex: 0x3b82f6, rough: 0.30, metal: 0.10, emissive: 0x0a1e45 },
+      nerve:      { hex: 0xfacc15, rough: 0.40, metal: 0.05, emissive: 0x251c00 },
+      viscera:    { hex: 0xd97788, rough: 0.50, metal: 0.05, emissive: 0x000000 },
+      lymph:      { hex: 0x84cc16, rough: 0.40, metal: 0.05, emissive: 0x0f2000 },
+      attachment: { hex: 0xf97316, rough: 0.35, metal: 0.10, emissive: 0x200a00 },
+      fascia:     { hex: 0x7dd3fc, rough: 0.30, metal: 0.05, emissive: 0x000000, opacity: 0.35 },
+      skin:       { hex: 0xfdba74, rough: 0.65, metal: 0.00, emissive: 0x000000, opacity: 0.40 }
+    };
+
+    const materialCache = new Map();
+    function getBaseMaterial(system, origMatName, customHex) {
+      const key = `${system}_${origMatName}_${customHex || 'default'}`;
+      if (materialCache.has(key)) return materialCache.get(key);
+      const p = SYSTEM_PALETTE[system] || SYSTEM_PALETTE.muscle;
+      const isTendon = (origMatName || '').toLowerCase() === 'tendon';
+      const baseHex = customHex ? customHex : (isTendon ? 0xebe6d8 : p.hex);
+
+      const mat = new THREE.MeshStandardMaterial({
+        name: origMatName || system,
+        color: new THREE.Color(baseHex),
+        emissive: new THREE.Color(p.emissive || 0x000000),
+        roughness: p.rough,
+        metalness: p.metal,
+        transparent: Boolean(p.opacity) && !customHex,
+        opacity: customHex ? 1.0 : (p.opacity || 1.0),
+        side: THREE.DoubleSide
+      });
+      materialCache.set(key, mat);
+      return mat;
+    }
+
+    const highlightMaterial = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 0.45,
+      roughness: 0.25,
+      side: THREE.DoubleSide
+    });
+
+    const allMeshes = [];
+    const loadedFiles = new Set();
+    let currentRegion = 'brachial';
+    let selectedMesh = null;
+    let isIsolated = false;
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('opacity-0');
+      setTimeout(() => t.classList.add('opacity-0'), 2400);
+    }
+
+    // 32色スウォッチの生成
+    const swatchContainer = document.getElementById('color-swatches');
+    SWATCH_32_COLORS.forEach(hex => {
+      const btn = document.createElement('button');
+      btn.className = 'w-6 h-6 rounded-md border border-white/20 hover:scale-110 transition shadow-sm';
+      btn.style.backgroundColor = hex;
+      btn.addEventListener('click', () => {
+        if (!selectedMesh) return;
+        const id = selectedMesh.name;
+        userState.colors[id] = hex;
+        const newMat = getBaseMaterial(selectedMesh.userData.system, selectedMesh.userData.origMatName, hex);
+        selectedMesh.userData.origMaterial = newMat;
+        selectedMesh.material = newMat;
+        saveUserState();
+        showToast(`${selectedMesh.userData.info.ja} の色を保存しました`);
+      });
+      swatchContainer.appendChild(btn);
+    });
+
+    document.getElementById('reset-color-btn').addEventListener('click', () => {
+      if (!selectedMesh) return;
+      const id = selectedMesh.name;
+      delete userState.colors[id];
+      const origMat = getBaseMaterial(selectedMesh.userData.system, selectedMesh.userData.origMatName, null);
+      selectedMesh.userData.origMaterial = origMat;
+      selectedMesh.material = highlightMaterial;
+      saveUserState();
+    });
+
+    // ============================================================================
+    // 5. オンデマンド部位ロード ＆ CSV自動フェッチ
+    // ============================================================================
+    async function parseCSVText(text) {
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return;
+      const headers = lines[0].split(',');
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',');
+        const row = {};
+        headers.forEach((h, idx) => row[h.trim()] = (cols[idx] || '').trim());
+        if (row.id) csvMap.set(row.id, row);
+      }
+    }
+
+    function registerSceneMeshes(root) {
+      root.traverse(child => {
+        if (child.isMesh) {
+          const origMatName = child.material ? child.material.name : '';
+          const info = resolveAnatomyData(child.name, origMatName);
+          const savedColor = userState.colors[child.name] || null;
+          const mat = getBaseMaterial(info.system, origMatName, savedColor);
+
+          child.material = mat;
+          child.userData = {
+            system: info.system,
+            origMatName,
+            origMaterial: mat,
+            info,
+            manuallyHidden: false,
+            peelScore: info.csv?.peelThreshold ? parseFloat(info.csv.peelThreshold) * 100 : 50
+          };
+          child.frustumCulled = true;
+          allMeshes.push(child);
+        }
+      });
+      scene.add(root);
+      computePeelFallback();
+      applyFilters();
+      renderFavoritesList();
+    }
+
+    function computePeelFallback() {
+      if (allMeshes.length === 0) return;
+      const box = new THREE.Box3();
+      allMeshes.forEach(m => box.expandByObject(m));
+      const center = box.getCenter(new THREE.Vector3());
+      const maxR = box.getSize(new THREE.Vector3()).length() * 0.5 || 1;
+
+      allMeshes.forEach(m => {
+        if (m.userData.info?.csv?.peelThreshold) return;
+        m.geometry.computeBoundingSphere();
+        const wc = m.geometry.boundingSphere.center.clone().applyMatrix4(m.matrixWorld);
+        const dist = Math.hypot(wc.x - center.x, wc.z - center.z);
+        m.userData.peelScore = Math.round(Math.min(95, Math.max(5, (1 - (dist / (maxR * 0.45))) * 100)));
+      });
+    }
+
+    async function loadRegionOnDemand(regionKey, filename, targetSelectId = null) {
+      currentRegion = regionKey;
+      document.querySelectorAll('.region-btn').forEach(btn => {
+        const active = btn.dataset.region === regionKey;
+        btn.className = active
+          ? 'region-btn bg-sky-500 text-slate-950 font-bold text-xs px-2.5 py-1 rounded-lg shrink-0 transition'
+          : 'region-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs px-2.5 py-1 rounded-lg font-medium shrink-0 transition';
+      });
+
+      if (loadedFiles.has(filename)) {
+        if (targetSelectId) focusMeshById(targetSelectId);
+        return;
+      }
+
+      const loadingBar = document.getElementById('loading-bar');
+      const loadingText = document.getElementById('loading-text');
+      loadingBar.classList.remove('hidden');
+      loadingText.textContent = `${filename} をロード中 (キャッシュ対応)...`;
+
+      try {
+        const buffer = await fetchWithCache(`./${filename}`);
+        const gltf = await gltfLoader.parseAsync(buffer, './');
+        loadedFiles.add(filename);
+        registerSceneMeshes(gltf.scene);
+        if (targetSelectId) {
+          focusMeshById(targetSelectId);
+        } else {
+          fitCameraToMeshes(allMeshes.filter(m => m.visible));
+        }
+      } catch (e) {
+        // ローカルで直接HTMLを開いた場合などはドロップゾーンを表示
+        if (allMeshes.length === 0) {
+          document.getElementById('drop-zone').classList.remove('hidden');
+        }
+      } finally {
+        loadingBar.classList.add('hidden');
+      }
+    }
+
+    // ローカルファイルのドラッグ＆ドロップ読込
+    async function handleLocalFiles(files) {
+      const list = Array.from(files);
+      const csvs = list.filter(f => f.name.endsWith('.csv'));
+      const glbs = list.filter(f => f.name.endsWith('.glb') || f.name.endsWith('.gltf'));
+      if (csvs.length === 0 && glbs.length === 0) return;
+
+      document.getElementById('drop-zone').classList.add('hidden');
+      const loadingBar = document.getElementById('loading-bar');
+      const loadingText = document.getElementById('loading-text');
+      loadingBar.classList.remove('hidden');
+
+      for (const cf of csvs) {
+        loadingText.textContent = `CSV読込中: ${cf.name}`;
+        await parseCSVText(await cf.text());
+      }
+      for (const gf of glbs) {
+        loadingText.textContent = `3Dモデル読込中: ${gf.name}`;
+        const buf = await gf.arrayBuffer();
+        const gltf = await gltfLoader.parseAsync(buf, '');
+        loadedFiles.add(gf.name);
+        registerSceneMeshes(gltf.scene);
+      }
+      fitCameraToMeshes(allMeshes.filter(m => m.visible));
+      loadingBar.classList.add('hidden');
+    }
+
+    // ============================================================================
+    // 6. フィルタリング・検索サジェスト・お気に入りリスト
+    // ============================================================================
+    const LEVEL_DESC = {
+      1: 'Lv.1 (大骨格・本幹)',
+      2: 'Lv.2 (主要筋・靭帯)',
+      3: 'Lv.3 (国試頻出分枝)',
+      4: 'Lv.4 (標準)',
+      5: 'Lv.5 (細枝・起始停止含む)'
+    };
+
+    function applyFilters() {
+      const activeSystems = new Set();
+      document.querySelectorAll('#layer-toggles input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) activeSystems.add(cb.dataset.layer);
+      });
+
+      const query = document.getElementById('search-input').value.trim().toLowerCase();
+      const maxLv = parseInt(document.getElementById('level-slider').value, 10);
+      const peelVal = parseFloat(document.getElementById('peel-slider').value);
+
+      document.getElementById('level-value').textContent = LEVEL_DESC[maxLv];
+      document.getElementById('peel-value').textContent = `${peelVal}%`;
+
+      allMeshes.forEach(mesh => {
+        const u = mesh.userData;
+        if (u.manuallyHidden) {
+          mesh.visible = false;
+          return;
+        }
+        const inSystem = activeSystems.has(u.system);
+        const withinLevel = query ? true : (u.info.meshLv <= maxLv);
+        const peelable = (u.system === 'muscle' || u.system === 'fascia' || u.system === 'skin' || u.system === 'ligament');
+        const peeledOut = peelable && peelVal > 0 && u.peelScore <= peelVal;
+
+        const matchesQuery = !query ||
+          u.info.ja.toLowerCase().includes(query) ||
+          u.info.kana.toLowerCase().includes(query) ||
+          u.info.en.toLowerCase().includes(query) ||
+          (u.origMatName || '').toLowerCase().includes(query);
+
+        mesh.visible = inSystem && withinLevel && !peeledOut && matchesQuery;
+      });
+
+      updateSearchDropdown(query);
+    }
+
+    function updateSearchDropdown(query) {
+      const box = document.getElementById('search-results');
+      if (!query || query.length < 1) {
+        box.classList.add('hidden');
+        return;
+      }
+      const hits = allMeshes.filter(m => {
+        const i = m.userData.info;
+        return i.ja.toLowerCase().includes(query) || i.kana.toLowerCase().includes(query) || i.en.toLowerCase().includes(query);
+      }).slice(0, 15);
+
+      if (hits.length === 0) {
+        box.classList.add('hidden');
+        return;
+      }
+      box.innerHTML = '';
+      hits.forEach(m => {
+        const item = document.createElement('div');
+        item.className = 'p-2 hover:bg-slate-800 cursor-pointer flex justify-between items-center';
+        item.innerHTML = `<span class="font-medium text-white">${m.userData.info.ja}</span><span class="text-[10px] text-slate-400">${m.userData.info.sideJa}</span>`;
+        item.addEventListener('click', () => {
+          box.classList.add('hidden');
+          m.visible = true;
+          selectPart(m);
+          fitCameraToMeshes([m], 2.8);
+        });
+        box.appendChild(item);
+      });
+      box.classList.remove('hidden');
+    }
+
+    function renderFavoritesList() {
+      const favIds = Object.keys(userState.favorites);
+      document.getElementById('fav-count').textContent = favIds.length;
+      const container = document.getElementById('fav-list');
+      container.innerHTML = '';
+
+      if (favIds.length === 0) {
+        container.innerHTML = '<div class="text-slate-500 text-center py-4">右パネルの「★」を押すとここに追加されます</div>';
+        return;
+      }
+
+      favIds.forEach(id => {
+        const favData = userState.favorites[id];
+        const colorDot = userState.colors[id] || '#38bdf8';
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 cursor-pointer border border-slate-700/60';
+        row.innerHTML = `
+          <div class="flex items-center gap-2 truncate">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${colorDot}"></span>
+            <span class="font-medium text-white truncate">${favData.ja || id}</span>
+          </div>
+          <button class="text-slate-400 hover:text-rose-400 px-1" data-del="${id}">&times;</button>
+        `;
+        row.addEventListener('click', e => {
+          if (e.target.dataset.del) {
+            delete userState.favorites[id];
+            saveUserState();
+            updateFavStarUI();
+            return;
+          }
+          focusMeshById(id);
+        });
+        container.appendChild(row);
+      });
+    }
+
+    function focusMeshById(id) {
+      const target = allMeshes.find(m => m.name === id);
+      if (!target) return;
+      target.userData.manuallyHidden = false;
+      target.visible = true;
+      selectPart(target);
+      fitCameraToMeshes([target], 2.8);
+    }
+
+    // ============================================================================
+    // 7. クリック選択 ＆ インスペクタ表示
+    // ============================================================================
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let downPos = { x: 0, y: 0 };
+
+    renderer.domElement.addEventListener('pointerdown', e => { downPos = { x: e.clientX, y: e.clientY }; });
+    renderer.domElement.addEventListener('pointerup', e => {
+      if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 5) return;
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(allMeshes.filter(m => m.visible), false);
+      if (hits.length > 0) selectPart(hits[0].object);
+      else clearSelection();
+    });
+
+    function updateFavStarUI() {
+      const btn = document.getElementById('fav-toggle-btn');
+      if (selectedMesh && userState.favorites[selectedMesh.name]) {
+        btn.className = 'text-lg leading-none text-amber-400 transition';
+      } else {
+        btn.className = 'text-lg leading-none text-slate-500 hover:text-amber-400 transition';
+      }
+    }
+
+    function selectPart(mesh) {
+      if (selectedMesh && selectedMesh !== mesh) {
+        selectedMesh.material = selectedMesh.userData.origMaterial;
+      }
+      selectedMesh = mesh;
+      // カスタム色が塗られていない場合のみ水色ハイライト
+      if (!userState.colors[mesh.name]) {
+        selectedMesh.material = highlightMaterial;
+      }
+
+      const u = mesh.userData;
+      const info = u.info;
+      const csv = info.csv || {};
+
+      document.getElementById('inspector-panel').classList.remove('hidden');
+      document.getElementById('part-badge').textContent = u.system.toUpperCase();
+      document.getElementById('part-lv-badge').textContent = `Lv.${info.meshLv}`;
+      document.getElementById('part-side').textContent = info.sideJa;
+      document.getElementById('part-kana').textContent = info.kana || '解剖学構造';
+      document.getElementById('part-ja-name').textContent = info.ja;
+      document.getElementById('part-en-name').textContent = `ID: ${info.id}`;
+      document.getElementById('part-latin-name').textContent = `TA Latin: ${info.latin}`;
+
+      document.getElementById('part-action').textContent = ACTION_JA_MAP[u.origMatName] || u.origMatName || '標準構造・支持';
+      document.getElementById('part-path').textContent = `${info.ja} の解剖学的走行`;
+      document.getElementById('part-dissect').textContent = csv.dissect || '解剖実習標準ランドマーク・周囲の神経血管束との位置関係を確認';
+      document.getElementById('part-exam').textContent = csv.exam || 'CBT・医師国家試験対応構造';
+
+      document.getElementById('part-memo').value = userState.memos[mesh.name] || '';
+      updateFavStarUI();
+    }
+
+    function clearSelection() {
+      if (selectedMesh) {
+        selectedMesh.material = selectedMesh.userData.origMaterial;
+        selectedMesh = null;
+      }
+      if (isIsolated) {
+        isIsolated = false;
+        applyFilters();
+      }
+      document.getElementById('inspector-panel').classList.add('hidden');
+    }
+
+    function fitCameraToMeshes(meshes, distanceMultiplier = 1.45) {
+      const box = new THREE.Box3();
+      meshes.forEach(m => box.expandByObject(m));
+      if (box.isEmpty()) return;
+      const center = box.getCenter(new THREE.Vector3());
+      const maxDim = Math.max(...box.getSize(new THREE.Vector3()).toArray(), 0.08);
+      controls.target.copy(center);
+      camera.position.set(center.x, center.y, center.z + maxDim * distanceMultiplier);
+      controls.update();
+    }
+
+    // ============================================================================
+    // 8. イベント登録 ＆ URL状態共有・デバッグ報告コピー
+    // ============================================================================
+    document.querySelectorAll('.region-btn').forEach(btn => {
+      btn.addEventListener('click', () => loadRegionOnDemand(btn.dataset.region, btn.dataset.file));
+    });
+
+    document.getElementById('open-file-btn').addEventListener('click', () => {
+      document.getElementById('drop-zone').classList.remove('hidden');
+    });
+    document.getElementById('close-drop-btn').addEventListener('click', () => {
+      document.getElementById('drop-zone').classList.add('hidden');
+    });
+    document.getElementById('file-input').addEventListener('change', e => handleLocalFiles(e.target.files));
+    window.addEventListener('dragover', e => { e.preventDefault(); document.getElementById('drop-zone').classList.remove('hidden'); });
+    window.addEventListener('drop', e => { e.preventDefault(); handleLocalFiles(e.dataTransfer.files); });
+
+    // 左パネルタブ切替
+    document.getElementById('tab-layers-btn').addEventListener('click', e => {
+      e.target.className = 'py-1 rounded-lg font-semibold bg-slate-800 text-white transition';
+      document.getElementById('tab-favs-btn').className = 'py-1 rounded-lg font-semibold text-slate-400 hover:text-white transition';
+      document.getElementById('panel-layers').classList.remove('hidden');
+      document.getElementById('panel-favs').classList.add('hidden');
+    });
+    document.getElementById('tab-favs-btn').addEventListener('click', e => {
+      e.target.className = 'py-1 rounded-lg font-semibold bg-slate-800 text-white transition';
+      document.getElementById('tab-layers-btn').className = 'py-1 rounded-lg font-semibold text-slate-400 hover:text-white transition';
+      document.getElementById('panel-favs').classList.remove('hidden');
+      document.getElementById('panel-layers').classList.add('hidden');
+      renderFavoritesList();
+    });
+
+    // お気に入り★登録
+    document.getElementById('fav-toggle-btn').addEventListener('click', () => {
+      if (!selectedMesh) return;
+      const id = selectedMesh.name;
+      if (userState.favorites[id]) {
+        delete userState.favorites[id];
+        showToast('お気に入りから解除しました');
+      } else {
+        userState.favorites[id] = { ja: selectedMesh.userData.info.ja, region: currentRegion };
+        showToast('★ お気に入りに保存しました（ログイン不要）');
+      }
+      saveUserState();
+      updateFavStarUI();
+    });
+
+    // 個人メモ自動保存
+    document.getElementById('part-memo').addEventListener('input', e => {
+      if (!selectedMesh) return;
+      userState.memos[selectedMesh.name] = e.target.value;
+      saveUserState();
+    });
+
+    document.getElementById('clear-saved-btn').addEventListener('click', () => {
+      userState.favorites = {};
+      userState.colors = {};
+      userState.memos = {};
+      saveUserState();
+      allMeshes.forEach(m => {
+        m.userData.origMaterial = getBaseMaterial(m.userData.system, m.userData.origMatName, null);
+        m.material = m.userData.origMaterial;
+      });
+      showToast('保存データを初期化しました');
+    });
+
+    // URL共有機能
+    function buildShareURL() {
+      const url = new URL(window.location.href);
+      url.searchParams.set('region', currentRegion);
+      url.searchParams.set('lv', document.getElementById('level-slider').value);
+      url.searchParams.set('peel', document.getElementById('peel-slider').value);
+      if (selectedMesh) url.searchParams.set('select', selectedMesh.name);
+      else url.searchParams.delete('select');
+      return url.toString();
+    }
+
+    document.getElementById('share-url-btn').addEventListener('click', () => {
+      navigator.clipboard.writeText(buildShareURL());
+      showToast('現在の表示状態のURLをコピーしました！友達にそのまま送れます');
+    });
+
+    document.getElementById('debug-report-btn').addEventListener('click', () => {
+      if (!selectedMesh) return;
+      const u = selectedMesh.userData;
+      const memo = userState.memos[selectedMesh.name] || '（メモなし）';
+      const report = `【解剖学アプリ デバッグ共有】\n・部位名: ${u.info.ja}\n・ノードID: ${u.info.id}\n・システム分類: ${u.system} (Lv.${u.info.meshLv})\n・コメント: ${memo}\n・再現URL: ${buildShareURL()}`;
+      navigator.clipboard.writeText(report);
+      showToast('デバッグ報告テキスト＆再現URLをコピーしました！');
+    });
+
+    document.querySelectorAll('#layer-toggles input').forEach(cb => cb.addEventListener('change', applyFilters));
+    document.getElementById('search-input').addEventListener('input', applyFilters);
+    document.getElementById('level-slider').addEventListener('input', applyFilters);
+    document.getElementById('peel-slider').addEventListener('input', applyFilters);
+    document.getElementById('close-inspector').addEventListener('click', clearSelection);
+
+    document.getElementById('isolate-btn').addEventListener('click', () => {
+      if (!selectedMesh) return;
+      isIsolated = !isIsolated;
+      if (isIsolated) allMeshes.forEach(m => { m.visible = (m === selectedMesh); });
+      else applyFilters();
+    });
+
+    document.getElementById('hide-part-btn').addEventListener('click', () => {
+      if (!selectedMesh) return;
+      selectedMesh.userData.manuallyHidden = true;
+      clearSelection();
+      applyFilters();
+    });
+
+    document.getElementById('reset-view-btn').addEventListener('click', () => {
+      allMeshes.forEach(m => m.userData.manuallyHidden = false);
+      document.getElementById('peel-slider').value = 0;
+      clearSelection();
+      applyFilters();
+      fitCameraToMeshes(allMeshes.filter(m => m.visible));
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ============================================================================
+    // 9. 初期起動（URLパラメータ復元 ＆ CSV/初期部位の自動ロード）
+    // ============================================================================
+    async function initApp() {
+      renderFavoritesList();
+      const params = new URLSearchParams(window.location.search);
+      const initRegion = params.get('region') || 'brachial';
+      const initLv = params.get('lv');
+      const initPeel = params.get('peel');
+      const initSelect = params.get('select');
+
+      if (initLv) document.getElementById('level-slider').value = initLv;
+      if (initPeel) document.getElementById('peel-slider').value = initPeel;
+
+      // サーバー上のCSVを自動取得試行
+      for (const csvName of ['./anatomy_structures.csv', './anatomy_structures_2.csv']) {
+        try {
+          const resp = await fetch(csvName);
+          if (resp.ok) {
+            await parseCSVText(await resp.text());
+            break;
+          }
+        } catch (e) {}
+      }
+
+      const targetBtn = document.querySelector(`.region-btn[data-region="${initRegion}"]`) || document.querySelector('.region-btn');
+      await loadRegionOnDemand(targetBtn.dataset.region, targetBtn.dataset.file, initSelect);
+    }
+
+    initApp();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
